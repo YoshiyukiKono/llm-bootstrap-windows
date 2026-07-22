@@ -1,0 +1,67 @@
+name: ${COMPOSE_PROJECT_NAME:-llm-bootstrap-windows}
+
+services:
+  searxng:
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
+    container_name: llm-bootstrap-searxng
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8080}:8080"
+    volumes:
+      - ./config/searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - searxng-cache:/var/cache/searxng
+    environment:
+      SEARXNG_BASE_URL: http://localhost:${SEARXNG_PORT:-8080}/
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - DAC_OVERRIDE
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/search?q=health&format=json"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    logging:
+      options:
+        max-size: "5m"
+        max-file: "3"
+
+  open-webui:
+    image: ${OPEN_WEBUI_IMAGE:-ghcr.io/open-webui/open-webui:main}
+    container_name: llm-bootstrap-open-webui
+    restart: unless-stopped
+    depends_on:
+      searxng:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${OPEN_WEBUI_PORT:-3000}:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY}
+      ENABLE_WEB_SEARCH: "True"
+      WEB_SEARCH_ENGINE: searxng
+      WEB_SEARCH_RESULT_COUNT: ${WEB_SEARCH_RESULT_COUNT:-3}
+      WEB_SEARCH_CONCURRENT_REQUESTS: ${WEB_SEARCH_CONCURRENT_REQUESTS:-5}
+      SEARXNG_QUERY_URL: http://searxng:8080/search?q=<query>
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 45s
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  open-webui-data:
+  searxng-cache:
